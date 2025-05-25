@@ -1,0 +1,17 @@
+torch
+transformers 
+datasets
+transliterate
+indic-transliteration 
+pandas
+yt-dlp
+accelerate
+transformers[torch]
+accelerate>=0.22.0
+flair
+tiktoken==0.3.1
+sentencepiece
+pytube
+mlflow
+peft
+bitsandbytes
