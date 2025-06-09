@@ -26,17 +26,16 @@ def clean_response(text, query):
     response_lower = text.lower()
     missing_phrases = [phrase for phrase in required_phrases if phrase not in response_lower]
     if missing_phrases or not sentences:
-        additions = []
-        if 'texting too much' in missing_phrases or not sentences:
-            additions.append("To avoid texting too much, send one casual message within 24 hours, like: 'Hey, great meeting you! Free for coffee?'")
-        if 'overly eager' in missing_phrases or not sentences:
-            additions.append("Prevent being overly eager by matching her texting pace with one text daily, such as: 'Hey, loved our chat! What’s up?'")
-        if 'following up' in missing_phrases or not sentences:
-            additions.append("Follow up within 1–2 days to show interest, e.g., 'Hey, how’s it going? Had fun talking!'")
+        additions = [
+            "Don’t text too much! Send one chill text in 24 hours, like: 'Hey, fun meeting you! Coffee soon?'",
+            "Stay cool, don’t seem too eager. Text once a day, like: 'Yo, loved our chat! What’s good?'",
+            "Follow up in 1–2 days to keep it real, like: 'Hey, how’s it hangin’? Had a blast talking!'",
+            "Next, if she replies, ask about her day to keep the vibe going."
+        ]
         sentences = additions
     negative = r'\b(negative|stuck|struggling|reject|pressure|less interested)\b'
     text = re.sub(negative, 'positive', text, flags=re.IGNORECASE)
-    return '\n'.join([f"- {s}" for s in sentences if s]) + '\nThese actions foster a positive connection.'
+    return '\n'.join([f"- {s}" for s in sentences if s]) + '\nLet’s keep that connection vibing!'
 
 app = FastAPI()
 device = torch.device('cuda:0')
@@ -64,13 +63,15 @@ try:
     index = faiss.IndexFlatL2(dimension)
     index.add(embeddings)
 except Exception as e:
-    print(f"RAG setup failed: {e}")
-    documents, embedder, index = None, None, None
+    print(f"RAG initialization failed: {e}")
+    documents = []
+    embedder = None
+    index = None
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
-        # RAG context
+        # Retrieve context with RAG
         context = ""
         if documents and embedder and index:
             query_embedding = embedder.encode([request.query])
@@ -80,14 +81,14 @@ async def chat(request: ChatRequest):
         prompt = (
             f"Context: {context}\n"
             f"{request.query}\n"
-            f"Respond with a concise, positive, and well-structured answer using bullet points. Address each mistake (texting too much, being overly eager, not following up) with an explanation of how to avoid it and a specific action (e.g., example text message). Avoid irrelevant topics like social media or unrelated activities."
+            f"Give a short, friendly, and conversational response with bullet points. For each mistake (texting too much, being overly eager, not following up), explain briefly how to avoid it and suggest a fun text example. End with a next-step tip to keep the chat going. Skip unrelated stuff like social media."
         )
         inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=256)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=150,
+                max_new_tokens=200,  # Increased
                 do_sample=True,
                 top_k=50,
                 top_p=0.95,
