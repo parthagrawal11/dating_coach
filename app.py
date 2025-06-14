@@ -57,7 +57,7 @@ try:
     df = pd.read_csv(csv_path)
     data = [{'title': row['title'], 'text': str(row['text'])} for _, row in df.iterrows()]
     documents = [f"{item['title']}: {item['text']}" for item in data]
-    embedder = SentenceTransformer('all-MiniLM-L6-v2')
+    embedder = SentenceTransformer('paraphrase-MiniLM-L12-v2')
     embeddings = embedder.encode(documents, convert_to_numpy=True)
     dimension = embeddings.shape[1]
     index = faiss.IndexFlatL2(dimension)

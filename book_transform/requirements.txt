@@ -1,0 +1,9 @@
+pdfplumber 
+datasets 
+pandas 
+nltk
+torch 
+torchvision 
+torchaudio
+jupyter
+ipywidgets
