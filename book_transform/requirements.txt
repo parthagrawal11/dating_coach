@@ -7,3 +7,5 @@ torchvision
 torchaudio
 jupyter
 ipywidgets
+sentence-transformers
+transformers
