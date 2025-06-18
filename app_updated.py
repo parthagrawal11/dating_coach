@@ -41,7 +41,7 @@ def clean_response(text, query):
     required_phrases = ['texting too much', 'overly eager', 'following up']
     response_lower = text.lower()
     missing_phrases = [phrase for phrase in required_phrases if phrase not in response_lower]
-    if missing_phrases or not sentences:
+    if len(sentences) < 2:
         additions = [
             "Don’t text too much! Send one chill text in 24 hours, like: 'Hey, fun meeting you! Coffee soon?'",
             "Stay cool, don’t seem too eager. Text once a day, like: 'Yo, loved our chat! What’s good?'",
