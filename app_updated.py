@@ -4,13 +4,30 @@ import torch
 import re
 import pandas as pd
 import numpy as np
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
 from sentence_transformers import SentenceTransformer
 import faiss
 from PyPDF2 import PdfReader
 
 class ChatRequest(BaseModel):
     query: str
+
+def rewrite_chunk_local(chunk: str) -> str:
+    instruction = (
+        "Rewrite the following book advice in a casual tone like a dating coach, "
+        "as 2-3 short bullet points:\n\n" + chunk
+    )
+    inputs = rewriter_tokenizer(instruction, return_tensors="pt", truncation=True, max_length=512).to(device)
+    with torch.no_grad():
+        outputs = rewriter_model.generate(
+            **inputs,
+            max_new_tokens=150,
+            temperature=0.7,
+            top_k=50,
+            top_p=0.95
+        )
+    return rewriter_tokenizer.decode(outputs[0], skip_special_tokens=True)
+
 
 def clean_response(text, query):
     text = re.sub(re.escape(query), '', text, flags=re.IGNORECASE).strip()
@@ -56,9 +73,15 @@ def extract_chunks_from_pdf(pdf_path, max_chunk_len=1000):
         chunks.append(current.strip())
     return [{'title': f"BookChunk-{i}", 'text': chunk} for i, chunk in enumerate(chunks)]
 
+
+
 app = FastAPI()
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.cuda.empty_cache()
+
+# Load locally instead of calling OpenAI
+rewriter_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
+rewriter_model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base").to(device)
 
 try:
     tokenizer = AutoTokenizer.from_pretrained(r'D:/Python/dating coach/dating_coach/dating_coach_gpt2/final_new')
@@ -69,7 +92,6 @@ except Exception as e:
     print(f"Model load failed: {e}")
     exit(1)
 
-# Load RAG data separately
 csv_path = r'D:/Python/dating coach/formatted_data.csv'
 pdf_path = r'D:/Python/dating coach/book/book.pdf'
 
@@ -79,13 +101,15 @@ try:
     csv_docs = [f"{item['title']}: {item['text']}" for item in csv_data]
 
     pdf_data = extract_chunks_from_pdf(pdf_path)
-    pdf_docs = [f"{item['title']}: {item['text']}" for item in pdf_data]
-
+    pdf_docs_raw = [item['text'] for item in pdf_data[:10]]  # limit for quick rewrite test
+    pdf_docs_rewritten = [rewrite_chunk_local(text) for text in pdf_docs_raw]
+    for chunk in pdf_docs_rewritten[:3]:
+        print("--- REWRITTEN BOOK CHUNK ---")
+        print(chunk)
     embedder = SentenceTransformer('paraphrase-MiniLM-L12-v2')
 
-    # Separate indices
     csv_embeddings = embedder.encode(csv_docs, convert_to_numpy=True)
-    pdf_embeddings = embedder.encode(pdf_docs, convert_to_numpy=True)
+    pdf_embeddings = embedder.encode(pdf_docs_rewritten, convert_to_numpy=True)
 
     dim = csv_embeddings.shape[1]
     csv_index = faiss.IndexFlatL2(dim)
@@ -95,8 +119,8 @@ try:
     pdf_index.add(pdf_embeddings)
 
 except Exception as e:
-    print(f"RAG initialization failed: {e}")
-    csv_docs, pdf_docs = [], []
+    print(f"RAG init failed: {e}")
+    csv_docs, pdf_docs_rewritten = [], []
     embedder, csv_index, pdf_index = None, None, None
 
 @app.post("/chat")
@@ -105,23 +129,20 @@ async def chat(request: ChatRequest):
         context_parts = []
         if embedder and csv_index and pdf_index:
             query_embedding = embedder.encode([request.query])
-
-            # Retrieve from both sources
             D_csv, I_csv = csv_index.search(query_embedding, k=3)
             D_pdf, I_pdf = pdf_index.search(query_embedding, k=2)
-
             top_csv = [csv_docs[i] for i in I_csv[0]]
-            top_pdf = [pdf_docs[i] for i in I_pdf[0]]
-
+            top_pdf = [pdf_docs_rewritten[i] for i in I_pdf[0]]
             context_parts = top_csv + top_pdf
 
         context = "\n".join(context_parts)
-
         prompt = (
-            f"Context: {context}\n"
-            f"{request.query}\n"
-            f"Give a short, friendly, and conversational response with bullet points. For each mistake (texting too much, being overly eager, not following up), explain briefly how to avoid it and suggest a fun text example. End with a next-step tip to keep the chat going. Skip unrelated stuff like social media."
-        )
+                        f"You are a confident, cool dating coach. Based on the following context, answer casually and directly.\n"
+                        f"Context:\n{context}\n"
+                        f"User: {request.query}\n"
+                        f"Coach:"
+                    )
+
 
         inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=512)
         inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -145,4 +166,3 @@ async def chat(request: ChatRequest):
 
     except Exception as e:
         return {"error": str(e)}
- 
