@@ -2,52 +2,18 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import torch
 import re
-import PyPDF2
+import pandas as pd
+import os
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from sentence_transformers import SentenceTransformer
 import faiss
+from PyPDF2 import PdfReader
 
 class ChatRequest(BaseModel):
     query: str
 
-def is_heading(line):
-    """Identify if a line is a heading based on simple heuristics."""
-    line = line.strip()
-    return line.isupper() or (len(line.split()) < 6 and len(line) > 0)
-
-def extract_sections_from_pdf(pdf_path):
-    """Extract sections from a PDF using PyPDF2."""
-    sections = []
-    with open(pdf_path, 'rb') as file:
-        reader = PyPDF2.PdfReader(file)
-        current_section = None
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                lines = text.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if is_heading(line):
-                        if current_section:
-                            sections.append(current_section)
-                        current_section = {'situation': line, 'content': ''}
-                    elif current_section:
-                        current_section['content'] += line + ' '
-        if current_section and current_section['content'].strip():
-            sections.append(current_section)
-    return sections
-
-def clean_text(text):
-    """Clean text by removing extra whitespace and special characters."""
-    text = re.sub(r'\s+', ' ', text.strip())
-    text = re.sub(r'[^\w\s?!.,-]', '', text)
-    return text
-
 def clean_response(text, query):
-    """Clean and format the model response."""
     text = re.sub(re.escape(query), '', text, flags=re.IGNORECASE).strip()
     text = re.sub(r'\[.*?\]', '', text).strip()
     text = re.sub(r'<\|endoftext\|>', '', text).strip()
@@ -71,6 +37,43 @@ def clean_response(text, query):
     text = re.sub(negative, 'positive', text, flags=re.IGNORECASE)
     return '\n'.join([f"- {s}" for s in sentences if s]) + '\nLet’s keep that connection vibing!'
 
+def is_heading(line):
+    """Identify if a line is a heading based on simple heuristics."""
+    return line.isupper() or len(line.split()) < 5
+
+def extract_sections_from_pdf(pdf_path):
+    """Extract sections from a PDF using PyPDF2."""
+    sections = []
+    reader = PdfReader(pdf_path)
+    current_section = None
+    
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            lines = text.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                # Clean line: remove extra whitespace and special characters
+                line = re.sub(r'\s+', ' ', line)
+                if is_heading(line):
+                    if current_section:
+                        sections.append(current_section)
+                    current_section = {'title': line, 'text': ''}
+                elif current_section:
+                    current_section['text'] += line + ' '
+    
+    if current_section:
+        sections.append(current_section)
+    
+    # Log sections for debugging
+    print(f"Extracted {len(sections)} sections from PDF")
+    for i, section in enumerate(sections):
+        print(f"Section {i+1}: Title={section['title'][:50]}, Text={section['text'][:100]}...")
+    
+    return sections
+
 app = FastAPI()
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 torch.cuda.empty_cache()
@@ -83,16 +86,27 @@ try:
     model.eval()
 except Exception as e:
     print(f"Model load failed: {e}")
-    model = None
-    tokenizer = None
+    exit(1)
 
-# Load PDF and initialize RAG
-pdf_path = "D:/Python/dating coach/book/book.pdf"  # Replace with your PDF file path  # Replace with your PDF file path  # Replace with your PDF path
+# Load RAG components (CSV and PDF)
+csv_path = r'D:/Python/dating coach/formatted_data.csv'  # From format_situational_data.py
+pdf_path = r'D:/Python/dating coach/book.pdf'  # Replace with your PDF path
 try:
-    sections = extract_sections_from_pdf(pdf_path)
-    documents = [f"{section['situation']}: {clean_text(section['content'])}" for section in sections if section['content'].strip()]
-    if not documents:
-        raise ValueError("No valid sections extracted from PDF.")
+    # Load CSV data
+    csv_df = pd.read_csv(csv_path)
+    csv_data = [{'title': row['situation'], 'text': str(row['text'])} for _, row in csv_df.iterrows()]
+    
+    # Load PDF data
+    pdf_data = extract_sections_from_pdf(pdf_path)
+    
+    # Combine CSV and PDF data
+    documents = []
+    for item in csv_data:
+        documents.append(f"{item['title']}: {item['text']}")
+    for item in pdf_data:
+        documents.append(f"{item['title']}: {item['text']}")
+    
+    # Initialize RAG
     embedder = SentenceTransformer('paraphrase-MiniLM-L12-v2')
     embeddings = embedder.encode(documents, convert_to_numpy=True)
     dimension = embeddings.shape[1]
@@ -103,10 +117,6 @@ except Exception as e:
     documents = []
     embedder = None
     index = None
-    dimension = None
-    model = None
-    tokenizer = None
-
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -115,10 +125,9 @@ async def chat(request: ChatRequest):
         context = ""
         if documents and embedder and index:
             query_embedding = embedder.encode([request.query])
-            D, I = index.search(query_embedding, k=3)
+            D, I = index.search(query_embedding, k=5)
             context = "\n".join([documents[i] for i in I[0]])
 
-        # Create prompt
         prompt = (
             f"Context: {context}\n"
             f"{request.query}\n"
@@ -143,6 +152,3 @@ async def chat(request: ChatRequest):
         return {"response": cleaned_response}
     except Exception as e:
         return {"error": str(e)}
-@app.get("/")
-async def root():
-    return {"status": "API running"}
