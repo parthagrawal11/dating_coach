@@ -97,7 +97,7 @@ pdf_path = r'D:/Python/dating coach/book/book.pdf'
 
 try:
     csv_df = pd.read_csv(csv_path)
-    csv_data = [{'title': row['situation'], 'text': str(row['text'])} for _, row in csv_df.iterrows()]
+    csv_data = [{'title': row['title'], 'text': str(row['text'])} for _, row in csv_df.iterrows()]
     csv_docs = [f"{item['title']}: {item['text']}" for item in csv_data]
 
     pdf_data = extract_chunks_from_pdf(pdf_path)
@@ -123,6 +123,23 @@ except Exception as e:
     csv_docs, pdf_docs_rewritten = [], []
     embedder, csv_index, pdf_index = None, None, None
 
+def filter_context_notes(raw_context: str) -> str:
+    instruction = (
+        "Summarize this dating advice into 3-5 bullet points or notes for a coach to use in a reply. "
+        "Keep it short and relevant. Avoid repeating questions, irrelevant text, or instructions."
+        "\n\n" + raw_context
+    )
+    inputs = rewriter_tokenizer(instruction, return_tensors="pt", truncation=True, max_length=512).to(device)
+    with torch.no_grad():
+        outputs = rewriter_model.generate(
+            **inputs,
+            max_new_tokens=150,
+            temperature=0.7,
+            top_k=50,
+            top_p=0.95
+        )
+    return rewriter_tokenizer.decode(outputs[0], skip_special_tokens=True)
+
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
@@ -135,13 +152,23 @@ async def chat(request: ChatRequest):
             top_pdf = [pdf_docs_rewritten[i] for i in I_pdf[0]]
             context_parts = top_csv + top_pdf
 
-        context = "\n".join(context_parts)
-        prompt = (
-                        f"You are a confident, cool dating coach. Based on the following context, answer casually and directly.\n"
-                        f"Context:\n{context}\n"
-                        f"User: {request.query}\n"
-                        f"Coach:"
+        raw_context = "\n".join(context_parts)
+        filtered_context = filter_context_notes(raw_context)
+        example = (
+                        "User: How can I make a strong impression on a first date?\n"
+                        "Coach:\n"
+                        "- Pick a simple plan, like coffee or a walk. Show confidence in the plan.\n"
+                        "- Keep the vibe fun: “So what’s your superpower?” is better than boring job talk.\n"
+                        "- Notice her energy — if she’s smiling or leaning in, you’re on the right track.\n"
+                        "Let’s keep that connection vibing!\n\n"
                     )
+
+        prompt = (
+                    f"You are a confident, cool dating coach. Use the notes below to write exactly 3 short bullet points giving casual advice with examples. End with one final tip to keep things going.\n"
+                    f"Notes:\n{filtered_context}\n"
+                    f"User: {request.query}\n"
+                    f"Coach:\n-"
+                )
 
 
         inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=512)

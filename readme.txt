@@ -7,5 +7,6 @@ bash: curl -X POST "http://localhost:8000/chat" -H "Content-Type: application/js
 when using book_env
 run in same directory wheer app.py is present.
 uvicorn app:app --host 127.0.0.1 --port 8000
+in case of environment conflicts: C:\Users\ASUS\anaconda3\envs\book_env\Scripts\uvicorn.exe app_updated:app --host 127.0.0.1 --port 8000 --reload 
 
 curl -X POST "http://localhost:8000/chat" -H "Content-Type: application/json" -d "{\"query\":\"How can I strategize a pickup line to ask her out at a coffee shop?\"}"
