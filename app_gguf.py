@@ -223,20 +223,20 @@ async def chat(request: ChatRequest):
         K_RETRIEVE  = 10
     total_start = time.time()
 
-    # ========== CSV Branch ==========
-    step_start = time.time()
-    csv_hits = retrieve_faiss(csv_index, csv_docs, query, k=K_RETRIEVE )
-    logging.info(f"[CSV] Retrieved {len(csv_hits)} hits in {time.time() - step_start:.2f}s")
+    # # ========== CSV Branch ==========
+    # step_start = time.time()
+    # csv_hits = retrieve_faiss(csv_index, csv_docs, query, k=K_RETRIEVE )
+    # logging.info(f"[CSV] Retrieved {len(csv_hits)} hits in {time.time() - step_start:.2f}s")
 
-    step_start = time.time()
-    csv_reranked = rerank(query, csv_hits)
-    csv_fused = fuse_chunks(csv_reranked)
-    logging.info(f"[CSV] Reranked and fused in {time.time() - step_start:.2f}s")
+    # step_start = time.time()
+    # csv_reranked = rerank(query, csv_hits)
+    # csv_fused = fuse_chunks(csv_reranked)
+    # logging.info(f"[CSV] Reranked and fused in {time.time() - step_start:.2f}s")
 
-    step_start = time.time()
-    csv_summary = phi_summarize(query, csv_fused)
-    logging.info(f"[CSV] Summarized with Hermes in {time.time() - step_start:.2f}s")
-    logging.info(f"[CSV] Summary: {csv_summary}")
+    # step_start = time.time()
+    # csv_summary = phi_summarize(query, csv_fused)
+    # logging.info(f"[CSV] Summarized with Hermes in {time.time() - step_start:.2f}s")
+    # logging.info(f"[CSV] Summary: {csv_summary}")
 
 
     # ========== Book Branch ==========
@@ -258,12 +258,12 @@ async def chat(request: ChatRequest):
     final_prompt = (
         f"You are a confident, friendly dating coach. The user asked:\n\n"
         f"\"{query}\"\n\n"
-        f"Here is situational advice from a CSV-trained model:\n{csv_summary}\n\n"
+        # f"Here is situational advice from a CSV-trained model:\n{csv_summary}\n\n"
         f"Here is book-based advice:\n{book_summary}\n\n"
-        "Now combine these into exactly 3 short, clear bullet points. "
+        "Now combine these into clear bullet points. "
         "Each bullet point MUST include a *practical example* of what to say or do. "
         "Avoid being too generic. Make it sound natural and real. "
-        "End with one *friendly tip* to keep the vibe going and make the user feel confident."
+        "End with a follow up question."
     )
 
     step_start = time.time()

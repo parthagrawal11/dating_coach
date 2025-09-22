@@ -187,7 +187,9 @@ def generate_with_model(tokenizer, model, prompt):
 
     total_time = time.time() - start_time
     logging.info(f"[GENERATION] Total time: {total_time:.2f}s")
-    return decoded
+    # Strip out the original prompt from the decoded result
+    response_only = decoded.replace(prompt, "").strip()
+    return response_only
 
 # ---- Summarization with Nous-Hermes ----
 # def summarize(query, context):
@@ -199,14 +201,26 @@ def generate_with_model(tokenizer, model, prompt):
 #     # return generate_with_model(rewriter_tokenizer, rewriter_model, prompt)
 #     return generate_with_model(prompt)
 
-def summarize(query, context):
-    prompt = (
-        "Instruct: You are a friendly, confident dating coach.\n"
-        f"User question: {query}\n"
-        f"Context: {context}\n"
-        "Write exactly 3 bullet points with practical examples of what to say or do. "
-        "Be specific, clear, helpful. End with one friendly tip to keep the conversation going.\n"
+def shrink_context_llm(context, shrink_prompt_base=None):
+    shrink_prompt = shrink_prompt_base or (
+        "Instruct: Please summarize the following text in 5-6 sentences "
+        "while keeping all key details clear and practical.\n\n"
+        f"{context}\n\n"
         "Output:"
+    )
+    logging.info(f"[SHRINK] Shrinking oversized context: {len(context)} chars")
+    return generate_with_model(final_tokenizer, final_model, shrink_prompt)
+
+
+def summarize(query, context):
+    
+    prompt = (
+    "Instruct: You are a friendly, confident dating coach.\n"
+    f"User question: {query}\n"
+    f"Context: {context}\n"
+    "Write exactly 3 bullet points with practical examples of what to say or do. "
+    "Be specific, clear, helpful. End with one friendly tip to keep the conversation going.\n"
+    "Output:"
     )
     return generate_with_model(final_tokenizer, final_model, prompt)
     # return generate_with_model(prompt)
@@ -224,20 +238,22 @@ async def chat(request: ChatRequest):
     total_start = time.time()
 
     # ========== CSV Branch ==========
-    step_start = time.time()
-    csv_hits = retrieve_faiss(csv_index, csv_docs, query, k=K_RETRIEVE )
-    logging.info(f"[CSV] Retrieved {len(csv_hits)} hits in {time.time() - step_start:.2f}s")
+    # step_start = time.time()
+    # csv_hits = retrieve_faiss(csv_index, csv_docs, query, k=K_RETRIEVE )
+    # logging.info(f"[CSV] Retrieved {len(csv_hits)} hits in {time.time() - step_start:.2f}s")
 
-    step_start = time.time()
-    csv_reranked = rerank(query, csv_hits)
-    csv_fused = fuse_chunks(csv_reranked)
-    logging.info(f"[CSV] Reranked and fused in {time.time() - step_start:.2f}s")
+    # step_start = time.time()
+    # csv_reranked = rerank(query, csv_hits)
+    # csv_fused = fuse_chunks(csv_reranked)
+    # logging.info(f"[CSV] Reranked and fused in {time.time() - step_start:.2f}s")
+    # MAX_CONTEXT_LEN = 3000
+    # if len(csv_fused) > MAX_CONTEXT_LEN:
+    #     csv_fused = shrink_context_llm(csv_fused)
 
-    step_start = time.time()
-    csv_summary = summarize(query, csv_fused)
-    logging.info(f"[CSV] Summarized with Hermes in {time.time() - step_start:.2f}s")
-    logging.info(f"[CSV] Summary: {csv_summary}")
-
+    # step_start = time.time()
+    # csv_summary = summarize(query, csv_fused)
+    # logging.info(f"[CSV] Summarized with Hermes in {time.time() - step_start:.2f}s")
+    # logging.info(f"[CSV] Summary: {csv_summary}")
 
     # ========== Book Branch ==========
     step_start = time.time()
@@ -248,7 +264,10 @@ async def chat(request: ChatRequest):
     book_reranked = rerank(query, book_hits)
     book_fused = fuse_chunks(book_reranked)
     logging.info(f"[Book] Reranked and fused in {time.time() - step_start:.2f}s")
+    MAX_CONTEXT_LEN = 3000
 
+    if len(book_fused) > MAX_CONTEXT_LEN:
+        book_fused = shrink_context_llm(book_fused)
     step_start = time.time()
     book_summary = summarize(query, book_fused)
     logging.info(f"[Book] Summarized with Hermes in {time.time() - step_start:.2f}s")
@@ -258,7 +277,7 @@ async def chat(request: ChatRequest):
     final_prompt = (
         f"You are a confident, friendly dating coach. The user asked:\n\n"
         f"\"{query}\"\n\n"
-        f"Here is situational advice from a CSV-trained model:\n{csv_summary}\n\n"
+        # f"Here is situational advice from a CSV-trained model:\n{csv_summary}\n\n"
         f"Here is book-based advice:\n{book_summary}\n\n"
         "Now combine these into exactly 3 short, clear bullet points. "
         "Each bullet point MUST include a *practical example* of what to say or do. "
@@ -272,11 +291,8 @@ async def chat(request: ChatRequest):
     # answer = generate_response(final_prompt)
     logging.info(f"[Final Merge] Generated answer in {time.time() - step_start:.2f}s")
     logging.info(f"[FINAL ANSWER]: {answer}")
-
     logging.info(f"[TOTAL RUNTIME]: {time.time() - total_start:.2f}s")
-
-        inputs = tokenizer(prompt, return_tensors='pt', truncation=True, max_length=512)
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+    return {"response": answer}
 
         with torch.no_grad():
             outputs = model.generate(
