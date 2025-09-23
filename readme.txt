@@ -50,3 +50,12 @@ Final Merger:
 
 4️⃣ Final merge with Nous-Hermes
   - csv summary + book summary + question -> Hermes
+
+
+Data flow 
+
+hinglish--> formatted Data
+
+transcripts-->hinglish
+
+data preprocessing: to process hinglish to formatted data

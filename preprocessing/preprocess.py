@@ -88,8 +88,12 @@ def build_dataset(pdf_dir: str, transcript_dir: str, output_path: str = "dating_
 
     # PDFs → chunked text
     for pdf_file in Path(pdf_dir).glob("*.pdf"):
+        print("Processing PDF:", pdf_file)
         pdf_text = extract_pdf_text(str(pdf_file))
+        print("Extracted text length:", len(pdf_text))
+        print("Extracted text (first 500 chars):", pdf_text[:500])
         chunks = chunk_text(pdf_text)
+        print("Number of chunks:", len(chunks))
         for c in chunks:
             data.append({"text": c})
 
@@ -103,7 +107,6 @@ def build_dataset(pdf_dir: str, transcript_dir: str, output_path: str = "dating_
     with open(output_path, "w", encoding="utf-8") as f:
         for d in data:
             f.write(json.dumps(d, ensure_ascii=False) + "\n")
-
     # Also return HF Dataset for training
     return Dataset.from_list(data)
 
@@ -111,9 +114,14 @@ def build_dataset(pdf_dir: str, transcript_dir: str, output_path: str = "dating_
 # Example usage
 # -------------------------------
 if __name__ == "__main__":
+    pdf_dir = "D:/Python/dating coach/book"
+    transcript_dir = "D:/Python/dating coach/transcripts"
+    print("PDF dir absolute:", os.path.abspath(pdf_dir))
+    print("Transcript dir absolute:", os.path.abspath(transcript_dir))
     dataset = build_dataset(
-        pdf_dir="data/pdfs", 
-        transcript_dir="data/transcripts",
+        pdf_dir=pdf_dir, 
+        transcript_dir=transcript_dir,
         output_path="dating_coach.jsonl"
     )
-    print(dataset)
+    print("Total records:", len(dataset))
+
