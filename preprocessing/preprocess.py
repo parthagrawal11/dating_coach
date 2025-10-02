@@ -1,26 +1,11 @@
+
+import random
+from typing import List, Dict
+from itertools import islice
 import re
-import json
 import nltk
 import pdfplumber
-from pathlib import Path
 
-nltk.download("punkt")
-
-# -------------------------------
-# 1. Extract PDF text
-# -------------------------------
-def extract_pdf_text(pdf_path: str) -> str:
-    all_text = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                all_text.append(page_text)
-    return " ".join(all_text)
-
-# -------------------------------
-# 2. Clean and split into chunks
-# -------------------------------
 def chunk_text(text: str, max_words: int = 60):
     sentences = nltk.sent_tokenize(text)
     chunks, current, count = [], [], 0
@@ -35,56 +20,111 @@ def chunk_text(text: str, max_words: int = 60):
         chunks.append(" ".join(current))
     return chunks
 
-# -------------------------------
-# 3. Heuristic Question Generator
-# -------------------------------
-def generate_question(chunk: str) -> str:
+def chunk_text(text: str, max_sentences: int = 3) -> List[str]:
     """
-    Rule-based: pick keywords to form generic questions.
-    Can be replaced with GPT for smarter Q-generation.
+    Split text into chunks of sentences for combining later.
     """
-    chunk_lower = chunk.lower()
-    if "call" in chunk_lower:
-        return "What to do on calls?"
-    elif "date" in chunk_lower:
-        return "How to plan a date?"
-    elif "drink" in chunk_lower:
-        return "Should you buy drinks for someone?"
-    elif "text" in chunk_lower or "message" in chunk_lower:
-        return "How to handle texting?"
-    else:
-        return "What should you do in this situation?"
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks = []
+    window = 2  # smaller window for more overlap
+    stride = 1  # overlap chunks for more Q/A
+    for i in range(0, len(sentences) - window + 1, stride):
+        chunk = " ".join(sentences[i:i+window])
+        if chunk:
+            chunks.append(chunk)
+    # Add any remaining sentence as a chunk
+    if len(sentences) % stride != 0 and len(sentences) > 0:
+        chunk = " ".join(sentences[-window:])
+        if chunk and chunk not in chunks:
+            chunks.append(chunk)
+    return chunks
 
-# -------------------------------
-# 4. Build Q–A pairs
-# -------------------------------
-def build_pairs_from_pdf(pdf_path: str, output="pdf_finetune.jsonl"):
-    raw_text = extract_pdf_text(pdf_path)
-    chunks = chunk_text(raw_text)
+def generate_questions(title: str, text: str) -> List[str]:
+    """
+    Generate candidate questions from title and some heuristics.
+    """
+    title_clean = re.sub(r'[_:]', '', title).strip()
+    questions = [
+        f"What is the main idea of '{title_clean}'?",
+        f"Summarize the advice in '{title_clean}'.",
+        f"What can we learn from '{title_clean}'?",
+        f"What about {title_clean.lower()}?"
+    ]
+    # Add more generic and situational questions
+    generic_qs = [
+        "What to do on calls?",
+        "How should men behave?",
+        "What happens in this situation?",
+        "What should I say or do?",
+        "What is the best approach?",
+        "What is the key takeaway?",
+        "How to handle this scenario?",
+        "What is the recommended action?"
+    ]
+    questions.extend(random.sample(generic_qs, k=min(4, len(generic_qs))))
+    return questions
 
-    pairs = []
-    for chunk in chunks:
-        question = generate_question(chunk)
+def combine_chunks(chunks: List[str], window: int = 2) -> List[str]:
+    """
+    Combine nearby chunks into longer responses.
+    """
+    responses = []
+    it = iter(chunks)
+    while True:
+        part = list(islice(it, window))
+        if not part:
+            break
+        responses.append(" ".join(part))
+    return responses
+
+def create_qa_pairs(title: str, raw_text: str) -> List[Dict[str, str]]:
+    """
+    Create Q/A pairs from raw text + title.
+    """
+    # Step 1: chunk text
+    chunks = chunk_text(raw_text, max_sentences=2)
+    # Step 2: generate questions
+    questions = generate_questions(title, raw_text)
+    # Step 3: combine nearby chunks for richer answers
+    responses = combine_chunks(chunks, window=1)  # use window=1 for more granular answers
+
+    # Step 4: build pairs (one question per chunk, plus some cross-pairing)
+    qa_pairs = []
+    for i, r in enumerate(responses):
         # Remove all newlines from the response
-        response = chunk.replace('\n', ' ').replace('\r', ' ').strip()
-        pairs.append({
-            "instruction": question,
-            "response": response
-        })
+        clean_response = r.replace('\n', ' ').replace('\r', ' ').strip()
+        for q in questions:
+            qa_pairs.append({
+                "question": q,
+                "response": clean_response
+            })
+    return qa_pairs
 
-    with open(output, "w", encoding="utf-8") as f:
-        for p in pairs:
-            f.write(json.dumps(p, ensure_ascii=False) + "\n")
-    return pairs
 
-# -------------------------------
-# Example Run
-# -------------------------------
+# ------------------ Save to JSONL ------------------
+def save_qa_pairs_jsonl(pairs: List[Dict[str, str]], output_path: str):
+    import json
+    with open(output_path, "w", encoding="utf-8") as f:
+        for pair in pairs:
+            f.write(json.dumps(pair, ensure_ascii=False) + "\n")
+
+
+# ------------------ Example ------------------
 if __name__ == "__main__":
-    pdf_dir = "D:/Python/dating coach/book/book.pdf"
-    pdf_file = pdf_dir
-    dataset = build_pairs_from_pdf(pdf_file)
-    print("Sample:", dataset[:3])
+    # Use the provided PDF file path and extract text using pdfplumber
+    file_path = "D:/Python/dating coach/book/book.pdf"
+    title = file_path.split("/")[-1] if "/" in file_path else file_path.split("\\")[-1]
+    # Extract text from PDF
+    all_text = []
+    with pdfplumber.open(file_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                all_text.append(page_text)
+    raw_text = " ".join(all_text)
+    qa_dataset = create_qa_pairs(title, raw_text)
+    save_qa_pairs_jsonl(qa_dataset, "qa_output.jsonl")
+    print(f"Saved {len(qa_dataset)} Q/A pairs to qa_output.jsonl")
 
 # # -------------------------------
 # # Example usage
