@@ -3,7 +3,7 @@ import re
 import json
 import nltk
 import pdfplumber
-import openai
+from perplexity import Perplexity
 import numpy as np
 from typing import List, Dict
 from sentence_transformers import SentenceTransformer, util
@@ -13,7 +13,12 @@ nltk.download("punkt")
 # -------------------------------
 # CONFIG
 # -------------------------------
-openai.api_key = os.getenv("OPENAI_API_KEY")
+api_key = os.getenv("PERPLEXITY_API_KEY")
+if not api_key:
+    raise EnvironmentError("PERPLEXITY_API_KEY environment variable not set. Please set it before running.")
+else:
+    print("PERPLEXITY_API_KEY found.")
+client = Perplexity(api_key=api_key)
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
 # -------------------------------
@@ -50,14 +55,21 @@ def generate_dynamic_question(title: str, chunk: str) -> str:
     Text: "{chunk}"
     Question:
     """
+    # Limit API calls to avoid exceeding credit (e.g., max 100 calls per run)
+    if not hasattr(generate_dynamic_question, "call_count"):
+        generate_dynamic_question.call_count = 0
+    MAX_CALLS = 100
+    if generate_dynamic_question.call_count >= MAX_CALLS:
+        return "What advice does this section provide?"
     try:
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
+        resp = client.chat.completions.create(
+            model="sonar-pro",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.8,
             max_tokens=50
         )
-        question = resp["choices"][0]["message"]["content"].strip()
+        generate_dynamic_question.call_count += 1
+        question = resp.choices[0].message.content.strip()
         return question
     except Exception as e:
         print("Error generating question:", e)
