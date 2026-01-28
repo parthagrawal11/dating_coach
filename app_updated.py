@@ -61,11 +61,11 @@ final_model = AutoModelForCausalLM.from_pretrained(
 
 # Load data
 csv_docs, pdf_docs = [], []
-csv_path = r'D:/Python/dating coach/formatted_data.csv'
+# csv_path = r'D:/Python/dating coach/formatted_data.csv'
 pdf_path = r'D:/Python/dating coach/book/book.pdf'
 
-csv_df = pd.read_csv(csv_path)
-csv_docs = [f"{row['title']}: {row['text']}" for _, row in csv_df.iterrows()]
+# csv_df = pd.read_csv(csv_path)
+# csv_docs = [f"{row['title']}: {row['text']}" for _, row in csv_df.iterrows()]
 # csv_docs = [f"{item['title']}: {item['text']}" for item in csv_data]
 
 def chunk_text(text, max_tokens=300):
@@ -96,12 +96,9 @@ def extract_pdf_chunks(pdf_path):
 pdf_docs = extract_pdf_chunks(pdf_path)
 
 # Embed all
-csv_emb = embedder.encode(csv_docs, convert_to_numpy=True)
 pdf_emb = embedder.encode(pdf_docs, convert_to_numpy=True)
-dim = csv_emb.shape[1]
-csv_index = faiss.IndexFlatL2(dim)
+dim = pdf_emb.shape[1]
 pdf_index = faiss.IndexFlatL2(dim)
-csv_index.add(csv_emb)
 pdf_index.add(pdf_emb)
 
 def retrieve_faiss(index, docs, query, k=15):
