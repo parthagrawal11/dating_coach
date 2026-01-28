@@ -11,6 +11,9 @@ in case of environment conflicts: C:\Users\ASUS\anaconda3\envs\book_env\Scripts\
 
 curl -X POST "http://localhost:8000/chat" -H "Content-Type: application/json" -d "{\"query\":\"How can I strategize a pickup line to ask her out at a coffee shop?\"}"
 
+## bash commands for preprocess.py
+
+
 ##Architecture1##
 
 User Query

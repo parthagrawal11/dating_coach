@@ -108,7 +108,7 @@ def frame_answer_llm(question: str, selected_chunks: List[str]) -> str:
             temperature=0.8,
             max_tokens=50
         )
-        return resp["choices"][0]["message"]["content"].strip()
+        return resp.choices[0].message.content.strip()
     except Exception as e:
         print("Error framing answer:", e)
         return joined
